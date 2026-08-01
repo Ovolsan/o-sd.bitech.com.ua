@@ -1,13 +1,11 @@
 // ==UserScript==
 // @name         О sd.bitech.com.ua
 // @namespace    http://tampermonkey.net/
-// @version      20260421
-// @description  Переносить кнопку виходу на ліву панель. Стовпці «Статус» і «Черга» коротші. Назва без переносу рядка. Tooltip. Номер заявки, дата й час перенесено в стовпець «Агенти». В заявці добавлені поле зміни назви вкладки, більш зручно розташовані поля вводу, перенесені кнопки зверху на ліве меню. Ще все е описав, в планах доповнити.
+// @version      20260801
+// @description  Переносить кнопку виходу на ліву панель. Стовпці «Статус» і «Черга» коротші. Назва без переносу рядка. Tooltip. Номер заявки, дата й час перенесено в стовпець «Агенти» (агенти в tooltip).
 // @author       Ovolya
 // @match        *://sd.bitech.com.ua/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=bitech.com.ua
-// @updateURL    https://github.com/Ovolsan/o-sd.bitech.com.ua/raw/refs/heads/main/%D0%9E%20sd.bitech.com.ua.user.js
-// @downloadURL  https://github.com/Ovolsan/o-sd.bitech.com.ua/raw/refs/heads/main/%D0%9E%20sd.bitech.com.ua.user.js
 // @grant        none
 // ==/UserScript==
 
@@ -15,7 +13,6 @@
     'use strict';
 
     // перенос кнопки выхода в левое меню
-
     function moveLogout() {
         const logoutBtn = document.querySelector('.pi-sign-out')?.closest('button') ||
                           [...document.querySelectorAll('.p-button-label')]
@@ -43,13 +40,27 @@
                 if (idMatch) {
                     const ticketId = idMatch[1];
                     const dateSpan = propName.querySelector('span');
+                    // dateTime захватывает и дату, и время из оригинального элемента
                     const dateTime = dateSpan ? dateSpan.textContent.trim() : '';
                     const agentsCol = Array.from(grid.children).find(col => col.textContent.includes('Агенти'));
+
                     if (agentsCol) {
                         let agentsText = (agentsCol.querySelector('app-string-list-property') || agentsCol).textContent.trim();
+                        agentsText = agentsText.replace(/^Агенти\s*/, '').trim();
                         if (agentsText === '-') agentsText = '';
-                        const newText = `${ticketId} • ${dateTime}${agentsText ? ' • ' + agentsText : ''}`;
-                        agentsCol.innerHTML = `<small class="property-name">Агенти</small><span style="white-space:nowrap;">${newText}</span>`;
+
+                        const newText = `${ticketId} • ${dateTime}`;
+                        const tooltipText = agentsText ? `Агенти: ${agentsText}` : 'Агенти не призначені';
+
+                        agentsCol.innerHTML = `
+                            <small class="property-name">Агенти</small>
+                            <span
+                                style="white-space:nowrap; cursor:help;"
+                                title="${tooltipText.replace(/"/g, '&quot;')}"
+                            >
+                                ${newText}
+                            </span>
+                        `;
                     }
                 }
             }
@@ -92,63 +103,33 @@
             }
 
             /* === РЯД 1: Клієнт, Автор, Тип мережі === */
-            app-radio-button-group[key="client"] {
-                grid-area: client !important;
-            }
-            app-select[key="own"] {
-                grid-area: own !important;
-            }
-            app-radio-button-group[key="node"] {
-                grid-area: node !important;
-            }
+            app-radio-button-group[key="client"] { grid-area: client !important; }
+            app-select[key="own"] { grid-area: own !important; }
+            app-radio-button-group[key="node"] { grid-area: node !important; }
 
             /* === РЯД 2: Назва заявки (2 колонки), Обладнання === */
-            app-text-input[key="header"] {
-                grid-area: header !important;
-            }
-            app-multiselect[key="equipment"] {
-                grid-area: equipment !important;
-            }
+            app-text-input[key="header"] { grid-area: header !important; }
+            app-multiselect[key="equipment"] { grid-area: equipment !important; }
 
             /* === РЯД 3: Опис статусу (1), Опис заявки (2) === */
-            app-textarea[key="statustxt"] {
-                grid-area: statustxt !important;
-            }
-            app-iframe {
-                grid-area: iframe !important;
-            }
+            app-textarea[key="statustxt"] { grid-area: statustxt !important; }
+            app-iframe { grid-area: iframe !important; }
 
             /* === РЯД 4: Статус, Черга, Критичність === */
-            app-radio-button-group[key="status"] {
-                grid-area: status !important;
-            }
-            app-radio-button-group[key="queue"] {
-                grid-area: queue !important;
-            }
-            app-radio-button-group[key="criticality"] {
-                grid-area: criticality !important;
-            }
+            app-radio-button-group[key="status"] { grid-area: status !important; }
+            app-radio-button-group[key="queue"] { grid-area: queue !important; }
+            app-radio-button-group[key="criticality"] { grid-area: criticality !important; }
 
             /* === РЯД 5: Відповідальний відділ (1), Агент (2) === */
-            app-radio-button-group[key="department"] {
-                grid-area: department !important;
-            }
-            app-checkbox-group[key="agent"] {
-                grid-area: agent !important;
-            }
+            app-radio-button-group[key="department"] { grid-area: department !important; }
+            app-checkbox-group[key="agent"] { grid-area: agent !important; }
 
             /* === РЯД 6: Вид робіт (1), Тип робіт (2) === */
-            app-radio-button-group[key="rtype"] {
-                grid-area: rtype !important;
-            }
-            app-radio-button-group[key="towork"] {
-                grid-area: towork !important;
-            }
+            app-radio-button-group[key="rtype"] { grid-area: rtype !important; }
+            app-radio-button-group[key="towork"] { grid-area: towork !important; }
 
             /* Оставить оригинальную кнопку Зберегти */
-            .app-action-buttons {
-                display: flex !important;
-            }
+            .app-action-buttons { display: flex !important; }
 
             /* Компактные радиокнопки */
             .radio-button-label {
@@ -157,12 +138,9 @@
             }
 
             /* Скрыть верхний tablist (переносим в сайдбар) */
-            .p-tablist {
-                display: none !important;
-            }
+            .p-tablist { display: none !important; }
         `;
 
-        // Удалить старый стиль если есть
         const oldStyle = document.getElementById('sd-custom-layout');
         if (oldStyle) oldStyle.remove();
         const oldStyleV2 = document.getElementById('sd-custom-layout-v2');
