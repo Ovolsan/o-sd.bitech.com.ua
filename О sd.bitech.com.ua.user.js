@@ -5,6 +5,8 @@
 // @description  Переносить кнопку виходу на ліву панель. Стовпці «Статус» і «Черга» коротші. Назва без переносу рядка. Tooltip. Номер заявки, дата й час перенесено в стовпець «Агенти» (агенти в tooltip).
 // @author       Ovolya
 // @match        *://sd.bitech.com.ua/*
+// @updateURL    https://github.com/Ovolsan/o-sd.bitech.com.ua/raw/refs/heads/main/%D0%9E%20sd.bitech.com.ua.user.js
+// @downloadURL  https://github.com/Ovolsan/o-sd.bitech.com.ua/raw/refs/heads/main/%D0%9E%20sd.bitech.com.ua.user.js
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=bitech.com.ua
 // @grant        none
 // ==/UserScript==
