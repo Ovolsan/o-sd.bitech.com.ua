@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         О sd.bitech
 // @namespace    http://tampermonkey.net/
-// @version      20260901.17
+// @version      20260901.18
 // @description  Видалення кнопки виходу. Компактні списки заявок. Ярлики для кнопок та черг на лівій панелі.
 // @author       Ovolya
 // @match        *://sd.bitech.com.ua/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=bitech.com.ua
-// @updateURL    https://github.com/Ovolsan/o-sd.bitech/raw/refs/heads/main/%D0%9E%20sd.bitech.user.js
-// @downloadURL  https://github.com/Ovolsan/o-sd.bitech/raw/refs/heads/main/%D0%9E%20sd.bitech.user.js
+// @updateURL    https://github.com/Ovolsan/o-sd.bitech.com.ua/raw/refs/heads/main/%D0%9E%20sd.bitech.com.ua.user.js
+// @downloadURL  https://github.com/Ovolsan/o-sd.bitech.com.ua/raw/refs/heads/main/%D0%9E%20sd.bitech.com.ua.user.js
 // @grant        none
 // ==/UserScript==
 
@@ -286,9 +286,17 @@ if (currentSnapshot === lastShortcutsSnapshot && currentSnapshot !== '') {
         observer.disconnect();
         try {
             manageLogoutButton();
-            if (window.location.pathname.startsWith('/admin/requests')) {
+            const isRequestsListPage = window.location.pathname === '/admin/requests' ||
+                  window.location.pathname === '/admin/requests/';
+
+            if (isRequestsListPage) {
                 relocateControlsAndQueues();
                 enhanceListPage();
+            } else {
+                // Если не на списке заявок – удаляем контейнер с ярлыками
+                const customContainer = document.getElementById('ovolya-custom-sidebar-container');
+                if (customContainer) customContainer.remove();
+                lastShortcutsSnapshot = ''; // сбрасываем кэш, чтобы при возврате пересоздалось заново
             }
         } finally {
             observer.observe(document.body, { childList: true, subtree: true });
