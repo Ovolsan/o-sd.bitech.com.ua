@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         О sd.bitech
 // @namespace    http://tampermonkey.net/
-// @version      20260901.18
+// @version      20260901.19
 // @description  Видалення кнопки виходу. Компактні списки заявок. Ярлики для кнопок та черг на лівій панелі.
 // @author       Ovolya
 // @match        *://sd.bitech.com.ua/*
@@ -130,7 +130,7 @@
             // Применяем сокращение
             let shortName = QUEUE_MAP[fullName];
             if (!shortName) {
-                shortName = fullName.length > 3 ? fullName.substring(0, 3) : fullName;
+                shortName = fullName.length > 10 ? fullName.substring(0, 10) : fullName;
             }
 
             const shortcut = document.createElement('a');
