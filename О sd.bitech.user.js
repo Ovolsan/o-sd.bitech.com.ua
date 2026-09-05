@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         О sd.bitech
 // @namespace    http://tampermonkey.net/
-// @version      20260905
+// @version      20260905.1
 // @description  Видалення кнопки виходу. Компактні списки заявок. Ярлики. Моніторинг нових заявок + Звук и Фильтры
 // @author       Ovolya
 // @match        *://sd.bitech.com.ua/*
@@ -355,9 +355,7 @@
             });
     }
 
-    // ============================================================
-    // НАСТРОЙКИ, ФИЛЬТРЫ И ЗВУК (PORTED FROM O APC 205)
-    // ============================================================
+    // =========================НАСТРОЙКИ, ФИЛЬТРЫ И ЗВУК===================================
     let muteRules = JSON.parse(localStorage.getItem('sd_mute_rules') || '[]');
     let standardAudioData = localStorage.getItem('sd_snd_std') || null;
     let afkAudioData = localStorage.getItem('sd_snd_afk') || null;
@@ -579,7 +577,7 @@
         renderModal();
     }
 
-    // ==================================МОНИТОРИНГ НОВЫХ ЗАЯВОК==========================
+    //==================================МОНИТОРИНГ НОВЫХ ЗАЯВОК==========================
     const TARGET_URL = 'https://sd.bitech.com.ua/admin/requests?presetId=my-queues';
     const MONITOR_TARGET_PATH = '/admin/requests';
     const MONITOR_TARGET_PRESET = 'my-queues';
@@ -856,47 +854,70 @@
         favicon.href = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
     }
 
-    // ============================================================
-    // DEBUG / НАСТРОЙКИ UI
-    // ============================================================
+    // =====================DEBUG / НАСТРОЙКИ UI=======================================
     function monitorCreateDebug() {
         if (monitorDebugDiv) return;
-        monitorDebugDiv = document.createElement('div');
-        monitorDebugDiv.id = 'ovolya-monitor-debug';
-        monitorDebugDiv.style.cssText = `
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            background: #222;
-            color: #0f0;
-            padding: 5px 10px;
-            font-family: monospace;
-            z-index: 9998;
-            font-size: 12px;
-            border-radius: 4px;
-            opacity: .9;
-            cursor: pointer;
-            border: 1px solid #444;
-            user-select: none;
-        `;
-        monitorDebugDiv.title = 'Нажмите, чтобы открыть Настройки и Фильтры';
 
-        // Открытие настроек при клике по таймеру
-        monitorDebugDiv.addEventListener('click', () => {
+        // Создаем общий контейнер
+        monitorDebugDiv = document.createElement('div');
+        monitorDebugDiv.id = 'ovolya-monitor-debug-container';
+        monitorDebugDiv.style.cssText = `
+            position: fixed; bottom: 10px; left: 3px;
+            display: flex; gap: 5px; z-index: 9998; user-select: none;
+        `;
+
+        // Кнопка с таймером (открывает настройки)
+        const timerBtn = document.createElement('div');
+        timerBtn.id = 'ovolya-monitor-timer-btn';
+        timerBtn.style.cssText = `
+            background: #222; color: #0f0; padding: 5px 10px;
+            font-family: monospace; font-size: 12px; cursor: pointer; border: 1px solid #444;
+        `;
+        timerBtn.title = 'Нажмите, чтобы открыть Настройки и Фильтры';
+        timerBtn.addEventListener('click', () => {
             monitorNotificationCount = 0;
             const notification = document.querySelector('#ovolya-new-request-notification');
             if (notification) notification.remove();
             monitorStopTitleBlink();
             monitorUpdateDebug();
-
-            // Открываем перенесенное модальное окно
             openSettingsModal();
         });
+
+        // Кнопка принудительного перехвата мастера (Скрепка)
+        const pinBtn = document.createElement('div');
+        pinBtn.id = 'ovolya-monitor-pin-btn';
+        pinBtn.style.cssText = `
+            background: #222; color: #fff; padding: 5px 8px;
+            font-family: monospace; font-size: 12px; 
+             cursor: pointer; border: 1px solid #444;
+        `;
+        pinBtn.title = 'Сделать эту вкладку ГЛАВНОЙ (перехватить таймер)';
+        pinBtn.textContent = '📌';
+        pinBtn.addEventListener('click', () => {
+            monitorWriteLock(); // Форсированно записываем свой токен
+            monitorCheckOwnership(); // Проверяем и забираем права
+        });
+
+        monitorDebugDiv.appendChild(timerBtn);
+        monitorDebugDiv.appendChild(pinBtn);
         document.body.appendChild(monitorDebugDiv);
     }
 
     function monitorUpdateDebug() {
-        if (!monitorDebugDiv) return;
+        const container = document.querySelector('#ovolya-monitor-debug-container');
+        const timerBtn = document.querySelector('#ovolya-monitor-timer-btn');
+        const pinBtn = document.querySelector('#ovolya-monitor-pin-btn');
+
+        if (!container || !timerBtn) return;
+
+        // ИЗМЕНЕНИЕ: Если мы не на целевой странице мониторинга — полностью прячем виджет
+        if (!isMonitorTargetPage()) {
+            container.style.display = 'none';
+            return; // Дальше код не выполняем
+        } else {
+            container.style.display = 'flex'; // Возвращаем видимость на нужной странице
+        }
+
         const m = Math.floor(Math.max(0, monitorTimeLeft) / 60);
         const s = Math.floor(Math.max(0, monitorTimeLeft) % 60);
         let status = monitorIsOwner ? 'моніторинг' : 'очікування';
@@ -904,13 +925,21 @@
 
         if (monitorNotificationCount > 0) {
             text += ` | 🟠 нових: ${monitorNotificationCount}`;
-            monitorDebugDiv.style.color = '#ffaa00';
-            monitorDebugDiv.style.border = '1px solid #ffaa00';
+            timerBtn.style.color = '#ffaa00';
+            timerBtn.style.border = '1px solid #ffaa00';
         } else {
-            monitorDebugDiv.style.color = '#0f0';
-            monitorDebugDiv.style.border = '1px solid #444';
+            timerBtn.style.color = '#0f0';
+            timerBtn.style.border = '1px solid #444';
         }
-        monitorDebugDiv.textContent = text;
+        timerBtn.textContent = text;
+
+        if (pinBtn) {
+            if (monitorIsOwner) {
+                pinBtn.style.display = 'none';
+            } else {
+                pinBtn.style.display = 'block';
+            }
+        }
     }
 
     // =======================АКТИВНОСТЬ ПОЛЬЗОВАТЕЛЯ=====================================
@@ -969,7 +998,9 @@
                 if (isMonitorTargetPage()) {
                     location.reload();
                 } else {
-                    location.href = TARGET_URL;
+                    // ИЗМЕНЕНИЕ: Никаких редиректов на других страницах. 
+                    // Если скрипт как-то стал мастером не там, просто отдаем права.
+                    monitorReleaseLock();
                 }
                 return;
             }
@@ -988,22 +1019,19 @@
             monitorUpdateDebug();
             return;
         }
-        if (!monitorIsOwner) {
+        // ИЗМЕНЕНИЕ: Только вкладка с очередями может пытаться стать мастером
+        if (!monitorIsOwner && isMonitorTargetPage()) {
             monitorAcquireLock();
             if (monitorIsOwner) {
                 monitorLastTick = Date.now();
                 monitorTimeLeft = MONITOR_TIMER_MAX_SEC;
-                if (isMonitorTargetPage()) {
-                    monitorCheckForNewTickets();
-                }
+                monitorCheckForNewTickets();
             }
         }
         monitorUpdateDebug();
     }
 
-    // ============================================================
-    // ИНИЦИАЛИЗАЦИЯ
-    // ============================================================
+    // ==========================ИНИЦИАЛИЗАЦИЯ==================================
     function initNewRequestsMonitor() {
         if (monitorInitialized) return;
         monitorInitialized = true;
