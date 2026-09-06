@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         О sd.bitech
 // @namespace    http://tampermonkey.net/
-// @version      20260906.2
-// @description  Видалення кнопки виходу. Компактні списки заявок. Ярлики. Моніторинг нових заявок + Звук и Фильтры
+// @version      20260906.3
+// @description  Видалення кнопки виходу. Компактні списки заявок. Ярлики. Моніторинг нових заявок + Звук и Фильтры + Системные уведомления
 // @author       Ovolsan
 // @match        *://sd.bitech.com.ua/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=bitech.com.ua
-// @updateURL    https://github.com/Ovolsan/o-sd.bitech/raw/refs/heads/main/O%20sd.bitech.user.js
-// @downloadURL  https://raw.githubusercontent.com/Ovolsan/o-sd.bitech/main/O%20sd.bitech.user.js
+// @updateURL    https://github.com/Ovolsan/O-sd.bitech/raw/refs/heads/main/O%20sd.bitech.user.js
+// @downloadURL  https://github.com/Ovolsan/O-sd.bitech/raw/refs/heads/main/O%20sd.bitech.user.js
 // @grant        none
 // ==/UserScript==
 
@@ -191,10 +191,9 @@
         id: 'ID'
     };
     let muteRules = JSON.parse(localStorage.getItem('sd_mute_rules') || '[]');
-    // Миграция старых строк в новый формат
     if (muteRules.length > 0 && typeof muteRules[0] === 'string') {
         muteRules = muteRules.map(text => ({ type: 'title', text }));
-        saveMuteRules(); // сразу сохраняем обновлённый формат
+        saveMuteRules();
     }
     let standardAudioData = localStorage.getItem('sd_snd_std') || null;
     let afkAudioData = localStorage.getItem('sd_snd_afk') || null;
@@ -205,10 +204,10 @@
     let lastRenderedTab = null;
     const REQUEST_FILTERS_KEY = 'sd_request_filter_rules';
     let requestFilterRules = JSON.parse(localStorage.getItem(REQUEST_FILTERS_KEY) || '[]');
-    function saveRequestFilterRules() {
-        localStorage.setItem(REQUEST_FILTERS_KEY, JSON.stringify(requestFilterRules));
-    }
+
+    function saveRequestFilterRules() { localStorage.setItem(REQUEST_FILTERS_KEY, JSON.stringify(requestFilterRules)); }
     function saveMuteRules() { localStorage.setItem('sd_mute_rules', JSON.stringify(muteRules)); }
+
     function isTicketFiltered(ticket) {
         return muteRules.some(rule => {
             if (!rule || !rule.type || !rule.text) return false;
@@ -220,23 +219,30 @@
                 case 'department':
                     return String(ticket.department || '').toLowerCase().includes(value);
                 case 'id':
-                    return String(ticket.id) === value; // точное совпадение ID
+                    return String(ticket.id) === value;
                 default:
                     return false;
             }
         });
     }
+
     function stopCurrentAudio() { if (currentAudio) { currentAudio.pause(); currentAudio = null; } }
 
-    // ГЛОБАЛЬНЫЙ СБРОС (Задача 1): Клик по любому месту (кроме панели) убирает нотифы и звук
+    // ГЛОБАЛЬНЫЙ СБРОС: Клик по любому месту убирает нотифы, системный пуш и звук
     document.addEventListener('click', (e) => {
-        if (e.target.closest('#ovolya-monitor-debug-container')) return; // Клик по нашему UI не сбрасывает нотиф
+        if (e.target.closest('#ovolya-monitor-debug-container')) return;
 
         if (e.isTrusted && currentAudio) stopCurrentAudio();
 
         if (monitorNotificationCount > 0) {
             const notif = document.querySelector('#ovolya-new-request-notification');
             if (notif) notif.remove();
+
+            if (monitorBrowserNotification) {
+                try { monitorBrowserNotification.close(); } catch (e) {}
+                monitorBrowserNotification = null;
+            }
+
             monitorPendingTickets.clear();
             monitorNotificationCount = 0;
             monitorStopTitleBlink();
@@ -264,7 +270,7 @@
         speechSynthesis.speak(utterance);
     }
 
-    // ======================Получение заявок (ID + название + критичность + отдел)======================================
+    // ======================Получение заявок======================================
     function getCurrentTickets() {
         const tickets = new Map();
         document.querySelectorAll('.request-column-content a[href^="/admin/requests/"]').forEach(link => {
@@ -294,7 +300,7 @@
         return Array.from(tickets.values());
     }
 
-    // ======================Проверка заявки на фильтры (ID, Название, Отдел)======================================
+    // ======================Проверка заявки на фильтры======================================
     function isRequestFiltered(ticket) {
         for (const rule of requestFilterRules) {
             if (!rule || !rule.type || !rule.text) continue;
@@ -335,10 +341,15 @@
     let monitorIsPaused = false;
     let monitorLastTick = Date.now();
     let monitorHadClicks = false;
+    
+    // Переменные для пушей и уведомлений
     let monitorNotificationCount = 0;
     let monitorPendingTickets = new Map();
+    let monitorBrowserNotification = null;
+    let monitorNotificationGeneration = 0;
     let monitorTitleBlinking = false;
     let monitorOriginalTitle = document.title;
+    
     let monitorDebugDiv = null;
     let monitorInitialized = false;
 
@@ -368,32 +379,97 @@
     function monitorCheckForNewTickets() {
         if (!isMonitorTargetPage()) return;
         if (!monitorIsOwner) return;
+        
         const currentTickets = getCurrentTickets();
         if (currentTickets.length === 0) return;
+        
         const knownIds = monitorGetKnownIds();
         if (knownIds.length === 0) {
             monitorSaveKnownIds(currentTickets.map(t => t.id));
             return;
         }
+        
         const knownSet = new Set(knownIds);
         const newTickets = currentTickets.filter(t => !knownSet.has(t.id));
         if (newTickets.length === 0) return;
+        
         const unfilteredTickets = newTickets.filter(ticket => !isRequestFiltered(ticket));
         monitorSaveKnownIds([...knownIds, ...newTickets.map(t => t.id)]);
+        
         if (unfilteredTickets.length > 0) {
             monitorNotifyNewTickets(unfilteredTickets);
         }
     }
 
+    // ================ ФУНКЦИЯ ОБРАБОТКИ ПУШЕЙ И УВЕДОМЛЕНИЙ ================
     function monitorNotifyNewTickets(newTickets) {
         if (!Array.isArray(newTickets) || !newTickets.length) return;
-        for (const t of newTickets) monitorPendingTickets.set(String(t.id), t);
+
+        for (const ticket of newTickets) {
+            monitorPendingTickets.set(String(ticket.id), ticket);
+        }
+
         const tickets = [...monitorPendingTickets.values()];
         monitorNotificationCount = tickets.length;
+        const hasFirstCriticality = tickets.some(t => /^1\s*\.\s*ЗК-1$/i.test(t.criticality?.trim() || ''));
 
-        playAlertSound(tickets.some(t => /^1\s*\.\s*ЗК-1$/i.test(t.criticality?.trim() || '')));
+        playAlertSound(hasFirstCriticality);
         monitorShowNotification(tickets);
         monitorStartTitleBlink();
+
+        // Проверка прав на системные уведомления
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+        const criticalityCounts = new Map();
+        for (const ticket of tickets) {
+            const c = ticket.criticality?.trim() || 'Невизначена';
+            criticalityCounts.set(c, (criticalityCounts.get(c) || 0) + 1);
+        }
+        const criticalityText = [...criticalityCounts.entries()]
+            .map(([name, count]) => count > 1 ? `${name} (${count})` : name)
+            .join(', ');
+            
+        const body = `Нових заявок: ${tickets.length}\nКритичність: ${criticalityText}`;
+        const generation = ++monitorNotificationGeneration;
+
+        const showBrowserNotification = () => {
+            if (generation !== monitorNotificationGeneration) return;
+
+            try {
+                const notification = new Notification('sd.bitech', {
+                    body,
+                    icon: 'https://www.google.com/s2/favicons?sz=64&domain=bitech.com.ua',
+                    tag: `sd-bitech-${generation}`,
+                    requireInteraction: true
+                });
+                monitorBrowserNotification = notification;
+                
+                notification.onclick = () => {
+                    window.focus();
+                    notification.close();
+                    if (monitorBrowserNotification === notification) {
+                        monitorBrowserNotification = null;
+                    }
+                };
+
+                notification.onclose = () => {
+                    if (monitorBrowserNotification === notification) {
+                        monitorBrowserNotification = null;
+                    }
+                };
+            } catch (e) {
+                console.log('[sd.bitech] Notification error:', e);
+            }
+        };
+
+        if (monitorBrowserNotification) {
+            const oldNotification = monitorBrowserNotification;
+            monitorBrowserNotification = null;
+            try { oldNotification.close(); } catch (e) {}
+            setTimeout(showBrowserNotification, 150);
+        } else {
+            showBrowserNotification();
+        }
     }
 
     function monitorShowNotification(tickets) {
@@ -411,6 +487,12 @@
 
         notification.addEventListener('click', () => {
             notification.remove();
+            
+            if (monitorBrowserNotification) {
+                try { monitorBrowserNotification.close(); } catch (e) {}
+                monitorBrowserNotification = null;
+            }
+            
             monitorPendingTickets.clear();
             monitorNotificationCount = 0;
             monitorStopTitleBlink();
@@ -423,7 +505,7 @@
     function monitorStartTitleBlink() { monitorTitleBlinking = true; }
     function monitorStopTitleBlink() { monitorTitleBlinking = false; document.title = monitorOriginalTitle; }
 
-    // =====================DEBUG / НАСТРОЙКИ UI (Новый дизайн) (Задачи 6, 7)=======================================
+    // =====================DEBUG / НАСТРОЙКИ UI =======================================
     function renderPanelContent(panel) {
         panel.innerHTML = '';
         const btnActionStyle = 'background:#444; color:#fff; border:none; padding:6px 12px; cursor:pointer; border-radius:3px;';
@@ -475,9 +557,9 @@
 
                 requestFilterRules.push({ type, text });
                 saveRequestFilterRules();
-                lastRenderedTab = null;      // СБРОС, чтобы renderPanelContent выполнился
-                monitorUpdateDebug();        // теперь панель перерисуется с новым правилом
-                hideBlacklistedTickets();    // сразу применяем скрытие
+                lastRenderedTab = null;
+                monitorUpdateDebug();
+                hideBlacklistedTickets();
             };
 
             panel.querySelectorAll('.ovolya-del-filter').forEach(btn => {
@@ -600,14 +682,20 @@
         const modeBtn = container.querySelector('#ovolya-mode-btn');
         const rulesBtn = container.querySelector('#ovolya-menu-rules-btn');
         const soundBtn = container.querySelector('#ovolya-menu-sound-btn');
+        
         if (!isMonitorTargetPage() && !isMenuOpen) {
             container.style.display = 'none'; return;
-        } else container.style.display = 'flex';
+        } else {
+            container.style.display = 'flex';
+        }
+        
         const m = Math.floor(Math.max(0, monitorTimeLeft) / 60);
         const s = Math.floor(Math.max(0, monitorTimeLeft) % 60);
         let status = monitorIsOwner ? 'моніторинг' : 'очікування';
         let timerText = `🔄 ${m}:${String(s).padStart(2, '0')} | ${status}`;
+        
         if (monitorNotificationCount > 0) timerText += ` | 🟠 нових: ${monitorNotificationCount}`;
+        
         if (isMenuOpen) {
             timerBtn.textContent = '❌ Закрыть';
             timerBtn.style.color = '#fff'; timerBtn.style.background = '#522'; timerBtn.style.border = '1px solid #a44';
@@ -624,8 +712,11 @@
             }
         } else {
             timerBtn.textContent = timerText;
-            if (monitorNotificationCount > 0) { timerBtn.style.color = '#ffaa00'; timerBtn.style.border = '1px solid #ffaa00'; timerBtn.style.background = '#222'; }
-            else { timerBtn.style.color = '#0f0'; timerBtn.style.border = '1px solid #444'; timerBtn.style.background = '#222'; }
+            if (monitorNotificationCount > 0) { 
+                timerBtn.style.color = '#ffaa00'; timerBtn.style.border = '1px solid #ffaa00'; timerBtn.style.background = '#222'; 
+            } else { 
+                timerBtn.style.color = '#0f0'; timerBtn.style.border = '1px solid #444'; timerBtn.style.background = '#222'; 
+            }
             modeBtn.style.display = 'none'; rulesBtn.style.display = 'none'; soundBtn.style.display = 'none'; panel.style.display = 'none';
         }
         if (pinBtn) pinBtn.style.display = (monitorIsOwner || isMenuOpen) ? 'none' : 'flex';
@@ -660,7 +751,6 @@
                 if (isMonitorTargetPage()) {
                     location.reload();
                 } else if (window.location.pathname === '/admin/requests') {
-                    // (Задача 5) Редирект с других страниц очередей (пагинация) обратно на базу по окончанию таймера
                     location.href = TARGET_URL;
                 } else {
                     monitorReleaseLock();
@@ -690,13 +780,22 @@
     function initNewRequestsMonitor() {
         if (monitorInitialized) return;
         monitorInitialized = true;
+        
+        // Запрос прав на уведомления при старте
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+        
         monitorCreateDebug();
         monitorAcquireLock();
         monitorLastTick = Date.now();
         monitorUpdateDebug();
+        
         setTimeout(() => {
-            if (monitorIsOwner && isMonitorTargetPage()) { monitorCheckForNewTickets(); } hideBlacklistedTickets();
+            if (monitorIsOwner && isMonitorTargetPage()) { monitorCheckForNewTickets(); } 
+            hideBlacklistedTickets();
         }, 2000);
+        
         setInterval(() => { if (monitorIsOwner) monitorRenewLock(); }, 2500);
         setInterval(monitorCheckOwnership, 3000);
     }
@@ -714,6 +813,7 @@
     }, 1000);
     window.addEventListener('storage', (e) => { if (e.key === MONITOR_LOCK_KEY) monitorCheckOwnership(); });
     window.addEventListener('beforeunload', () => { clearTimeout(monitorIdleTimeout); monitorReleaseLock(); });
+    
     initNewRequestsMonitor();
 
     const statusObserver = new MutationObserver(replaceStatusText);
