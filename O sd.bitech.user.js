@@ -1,14 +1,13 @@
 // ==UserScript==
 // @name         О sd.bitech
 // @namespace    http://tampermonkey.net/
-// @version      20260906.3
+// @version      20260906.6
 // @description  Видалення кнопки виходу. Компактні списки заявок. Ярлики. Моніторинг нових заявок + Звук и Фильтры + Системные уведомления
 // @author       Ovolsan
 // @match        *://sd.bitech.com.ua/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=bitech.com.ua
 // @updateURL    https://github.com/Ovolsan/O-sd.bitech/raw/refs/heads/main/O%20sd.bitech.user.js
 // @downloadURL  https://github.com/Ovolsan/O-sd.bitech/raw/refs/heads/main/O%20sd.bitech.user.js
-// @grant        none
 // ==/UserScript==
 
 (function () {
@@ -228,7 +227,7 @@
 
     function stopCurrentAudio() { if (currentAudio) { currentAudio.pause(); currentAudio = null; } }
 
-    // ГЛОБАЛЬНЫЙ СБРОС: Клик по любому месту убирает нотифы, системный пуш и звук
+    // глобальный сброс
     document.addEventListener('click', (e) => {
         if (e.target.closest('#ovolya-monitor-debug-container')) return;
 
@@ -238,15 +237,15 @@
             const notif = document.querySelector('#ovolya-new-request-notification');
             if (notif) notif.remove();
 
-            if (monitorBrowserNotification) {
-                try { monitorBrowserNotification.close(); } catch (e) {}
-                monitorBrowserNotification = null;
-            }
-
             monitorPendingTickets.clear();
             monitorNotificationCount = 0;
             monitorStopTitleBlink();
             monitorUpdateDebug();
+            
+            if (monitorBrowserNotification) {
+                try { monitorBrowserNotification.close(); } catch(err) {}
+                monitorBrowserNotification = null;
+            }
         }
     }, true);
 
@@ -308,19 +307,16 @@
             if (!ruleText) continue;
             if (rule.type === 'title') {
                 if (String(ticket.title || '').toLowerCase().includes(ruleText.toLowerCase())) {
-                    console.log(`[sd.bitech] Заявка #${ticket.id} проигнорирована: название содержит "${ruleText}"`);
                     return true;
                 }
             }
             if (rule.type === 'department') {
                 if (String(ticket.department || '').toLowerCase().includes(ruleText.toLowerCase())) {
-                    console.log(`[sd.bitech] Заявка #${ticket.id} проигнорирована: отдел содержит "${ruleText}"`);
                     return true;
                 }
             }
             if (rule.type === 'id') {
                 if (String(ticket.id) === ruleText) {
-                    console.log(`[sd.bitech] Заявка #${ticket.id} проигнорирована: ID "${ruleText}"`);
                     return true;
                 }
             }
@@ -328,11 +324,11 @@
         return false;
     }
 
-    // ==================================МОНИТОРИНГ НОВЫХ ЗАЯВОК==========================
+    // =================================Мониторинг заявок и таймер==========================
     const TARGET_URL = 'https://sd.bitech.com.ua/admin/requests?presetId=my-queues';
     const MONITOR_LOCK_KEY = 'ovolya_sd_new_requests_monitor_lock';
     const MONITOR_KNOWN_IDS_KEY = 'ovolya_sd_new_requests_known_ids';
-    const MONITOR_TIMER_MAX_SEC = 1 * 20;
+    const MONITOR_TIMER_MAX_SEC = 10 * 60;
     const MONITOR_ADD_TIME_ON_BLUR_SEC = 2 * 20;
     const monitorToken = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -345,15 +341,15 @@
     // Переменные для пушей и уведомлений
     let monitorNotificationCount = 0;
     let monitorPendingTickets = new Map();
-    let monitorBrowserNotification = null;
-    let monitorNotificationGeneration = 0;
     let monitorTitleBlinking = false;
     let monitorOriginalTitle = document.title;
+    let monitorBrowserNotification = null;
+    let monitorNotificationGeneration = 0;
     
     let monitorDebugDiv = null;
     let monitorInitialized = false;
 
-    // =======================Строгая проверка страницы====================================
+    // СТРОГАЯ ПРОВЕРКА URL
     function isMonitorTargetPage() {
         return window.location.href === TARGET_URL;
     }
@@ -393,15 +389,15 @@
         const newTickets = currentTickets.filter(t => !knownSet.has(t.id));
         if (newTickets.length === 0) return;
         
-        const unfilteredTickets = newTickets.filter(ticket => !isRequestFiltered(ticket));
+        const unmutedTickets = newTickets.filter(ticket => !isRequestFiltered(ticket));
         monitorSaveKnownIds([...knownIds, ...newTickets.map(t => t.id)]);
         
-        if (unfilteredTickets.length > 0) {
-            monitorNotifyNewTickets(unfilteredTickets);
+        if (unmutedTickets.length > 0) {
+            monitorNotifyNewTickets(unmutedTickets);
         }
     }
 
-    // ================ ФУНКЦИЯ ОБРАБОТКИ ПУШЕЙ И УВЕДОМЛЕНИЙ ================
+    // ТВОЯ ФУНКЦИЯ УВЕДОМЛЕНИЙ
     function monitorNotifyNewTickets(newTickets) {
         if (!Array.isArray(newTickets) || !newTickets.length) return;
 
@@ -412,12 +408,10 @@
         const tickets = [...monitorPendingTickets.values()];
         monitorNotificationCount = tickets.length;
         const hasFirstCriticality = tickets.some(t => /^1\s*\.\s*ЗК-1$/i.test(t.criticality?.trim() || ''));
-
         playAlertSound(hasFirstCriticality);
         monitorShowNotification(tickets);
         monitorStartTitleBlink();
 
-        // Проверка прав на системные уведомления
         if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
         const criticalityCounts = new Map();
@@ -428,7 +422,6 @@
         const criticalityText = [...criticalityCounts.entries()]
             .map(([name, count]) => count > 1 ? `${name} (${count})` : name)
             .join(', ');
-            
         const body = `Нових заявок: ${tickets.length}\nКритичність: ${criticalityText}`;
         const generation = ++monitorNotificationGeneration;
 
@@ -443,7 +436,6 @@
                     requireInteraction: true
                 });
                 monitorBrowserNotification = notification;
-                
                 notification.onclick = () => {
                     window.focus();
                     notification.close();
@@ -461,7 +453,6 @@
                 console.log('[sd.bitech] Notification error:', e);
             }
         };
-
         if (monitorBrowserNotification) {
             const oldNotification = monitorBrowserNotification;
             monitorBrowserNotification = null;
@@ -487,12 +478,6 @@
 
         notification.addEventListener('click', () => {
             notification.remove();
-            
-            if (monitorBrowserNotification) {
-                try { monitorBrowserNotification.close(); } catch (e) {}
-                monitorBrowserNotification = null;
-            }
-            
             monitorPendingTickets.clear();
             monitorNotificationCount = 0;
             monitorStopTitleBlink();
@@ -572,6 +557,11 @@
                 };
             });
         } else if (activeTab === 'settings') {
+            const notifPermission = ('Notification' in window) ? Notification.permission : 'unsupported';
+            const notifStatusText = notifPermission === 'granted' ? 'Разрешено ✓'
+                : notifPermission === 'denied' ? 'Заблокировано вручную ⚠️'
+                : notifPermission === 'unsupported' ? 'Не поддерживается браузером ❌'
+                : 'Не запрошено ❌';
             panel.innerHTML = `
                 <div style="margin-bottom:15px; padding:10px; border:1px solid #444; background:#222; border-radius:4px; font-family: sans-serif;">
                     <h4 style="margin:0 0 5px 0;">Стандартная мелодия (☀️ День)</h4>
@@ -594,6 +584,14 @@
                     </div>
                 </div>
                 <p style="color:#ffaa00; font-size:11px; margin-top: 10px; font-family: sans-serif;">Файлы до 2 МБ. Звук останавливается кликом по странице.</p>
+                <div style="margin-top:15px; padding:10px; border:1px solid #444; background:#222; border-radius:4px; font-family: sans-serif;">
+                    <h4 style="margin:0 0 5px 0;">Системные уведомления браузера</h4>
+                    <p style="color:#888; font-size: 11px; margin:0 0 10px 0;">Всплывающее уведомление от ОС/браузера при новой заявке (отдельно от звука и попапа на странице).</p>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span id="notif_status" style="color:#888; font-size:11px; flex-grow:1;">${notifStatusText}</span>
+                        <button id="btn_notif_request" style="${btnActionStyle}">Запросить</button>
+                    </div>
+                </div>
             `;
             const handleFile = (inputObj, storageKey, varName) => {
                 if (inputObj.files.length === 0) return;
@@ -614,6 +612,17 @@
             panel.querySelector(`#btn_afk`).onclick = () => panel.querySelector(`#file_afk`).click();
             panel.querySelector(`#file_afk`).onchange = (e) => handleFile(e.target, 'sd_snd_afk', 'afk');
             panel.querySelector(`#test_afk`).onclick = () => playAlertSound(false, 'afk');
+            panel.querySelector(`#btn_notif_request`).onclick = () => {
+                if (!('Notification' in window)) return;
+                if (Notification.permission === 'denied') {
+                    alert('Уведомления заблокированы вручную в браузере.\nОткрой настройки сайта (значок замка/инфо слева от адреса) → Уведомления → Разрешить, затем обнови страницу.');
+                    return;
+                }
+                Notification.requestPermission().then(() => {
+                    lastRenderedTab = null;
+                    monitorUpdateDebug();
+                });
+            };
         }
     }
 
@@ -781,7 +790,6 @@
         if (monitorInitialized) return;
         monitorInitialized = true;
         
-        // Запрос прав на уведомления при старте
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission();
         }
